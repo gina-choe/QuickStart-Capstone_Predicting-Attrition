@@ -26,9 +26,9 @@ You are required to model the probability of attrition using a logistic regressi
 I became interested in this dataset because HR analytics is becoming increasingly emphasized by successful workplaces. More companies are realizing that happy employees means increased productivity and growth, while employee attrition can be costly and obstructive. In my project, I aim to provide the logistic regression model requested by the management, but also to explore other models that may provide predictive power to understand which employees might leave the company. Prior to modeling, the data was cleaned and analyzed. This project was completed using R as the programming language.
 </br> 
 
-* [Data Wrangling Notebook]
-* [Exploratory Data Analysis Notebook]
-* [Modeling Notebook]
+* [Data Wrangling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Wrangling.Rmd)
+* [Exploratory Data Analysis Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Exploration.Rmd)
+* [Modeling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Modeling.Rmd)
 
 
 

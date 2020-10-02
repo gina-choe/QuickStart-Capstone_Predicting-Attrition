@@ -1,0 +1,332 @@
+---
+title: "Data Wrangling"
+author: "Gina Choe"
+date: "9/30/2020"
+output: html_document
+---
+
+```{css echo=FALSE}
+blockquote {
+    padding: 10px 10px;
+    margin: 0 0 10px;
+    font-size: 14px;
+    border-left: 5px solid #e0ebeb;
+    # font-weight: bold;
+}
+
+.outputs {
+    background-color: #eef2f7;
+    border: 1px solid #b3cce6;
+    font-weight: bold;
+}
+
+code {
+  white-space : pre-wrap !important;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(class.output = "outputs")
+knitr::opts_chunk$set(warning = FALSE)
+```
+</br>
+
+#### Objective
+
+The purpose of this markdown is to prepare the raw Human Resources(HR) data for exploratory data analysis and creating a classification model for predicting attrition among the employees at company XYZ. A summary of the content of this notebook is as follows:
+</br>
+
+##### I. Load the raw data
+1. Import relevant packages.
+2. Load the five datasets provided.
+3. Examine the structure of the datasets. 
+
+##### II. Add necessary features and remove extraneous data
+1. Transform daily time log data into meaningful variable.
+2. Combine the datasets into a single data frame with appropriate features.
+3. Remove columns with only one unique value.
+
+##### III. Prepare features for data exploration and predictive modeling
+1. Handling missing values by:
+    - Dropping rows with missing values with certain criteria.
+    - Imputing missing values using observations from data.
+2. Decode data according to the data dictionary.
+3. Prepare target columns.
+</br>
+</br>
+
+### <span style="color: #264d73;"> I. Load the raw data </span>
+
+##### 1. Import relevant packages.
+```{r tidy=TRUE, results='hide', collapse=TRUE}
+library(R.utils) # R utilities
+library(readr) # R utilities
+library(formatR)
+library(purrr) # Functional programming tools
+library(lubridate) # Date and time
+library(chron) # Date and time
+library(cowplot) # Visualization
+library(corrplot) # Correlation plot
+library(ggplot2) # Visualization
+library(scales) # Visualization
+library(caret) # Machine Learning 
+library(randomForest) # Random Forest
+library(MLmetrics) # Machine Learning metrics
+# library(data.table) # Functional programming tools
+library(lubridate)
+library(tidyverse) # Functional programming tools
+library(magrittr) # Piping
+```
+</br>
+
+##### 2. Load the raw csv files.
+```{r load data}
+dt_gen <- read.csv("general_data.csv")
+dt_emp <- read.csv("employee_survey_data.csv")
+dt_man <- read.csv("manager_survey_data.csv")
+dt_in <- read.csv("in_time.csv")
+dt_out <- read.csv("out_time.csv")
+```
+</br> 
+
+##### 3. Check the structure of the dataset.
+```{r overview of dataset}
+str(dt_gen)
+str(dt_emp)
+str(dt_man)
+str(dt_in)
+str(dt_out)
+````
+
+**Insights**
+
+* EmployeeID is the primary key. 
+* In-time and Out-time identifier columns are missing their column names.
+* All datasets have equal number of instances(4410 rows).
+* There are several columns that require decoding as specified by the data dictionary.
+* Some columns need to be converted from characters to factors for modeling.
+* Time data need to be converted to the correct data type.
+* In-time data and Out-time data have the same number of columns, but some NA values that need to be dealt with.</br>
+</br>
+
+Let's first deal with the missing column names for the time datasets.
+
+```{r colnames}
+colnames(dt_in)[1] <- "EmployeeID"
+colnames(dt_out)[1] <- "EmployeeID"
+````
+
+Now examine if the primary identifiers (EmployeeID) are unique and consistent.
+```{r empID}
+#### Employee IDs 
+nrow(dt_emp) == n_distinct(dt_emp$EmployeeID)
+nrow(dt_gen) == n_distinct(dt_gen$EmployeeID)
+nrow(dt_man) == n_distinct(dt_man$EmployeeID)
+nrow(dt_in) == n_distinct(dt_in$EmployeeID)
+nrow(dt_out) == n_distinct(dt_out$EmployeeID)
+
+setdiff(dt_gen$EmployeeID,dt_emp$EmployeeID)
+setdiff(dt_gen$EmployeeID,dt_man$EmployeeID)
+setdiff(dt_gen$EmployeeID,dt_in$EmployeeID)
+setdiff(dt_gen$EmployeeID,dt_out$EmployeeID)
+
+````
+
+EmployeeID values are unique and consistent across the datasets. </br>
+Let's move on to the cleanup phase.
+</br>
+
+### <span style="color: #264d73;">  II. Add necessary features or remove extraneous data </span>
+
+##### 1. Transform daily work hour data into meaningful variable.
+Convert datetime data to POSIXlt data type.
+```{r}
+dt_intime <- dt_in %>% select(-1) %>% lapply(as.POSIXlt) %>% as.data.frame
+dt_outtime <- dt_out %>% select(-1) %>% lapply(as.POSIXlt) %>% as.data.frame
+```
+
+Create a work duration data frame from in-time and out-time data.
+```{r work duration}
+dt_hrs <- dt_outtime - dt_intime
+dt_hrs %<>% lapply(round, digits=2) %>% as.data.frame
+
+# Convert work hours to numeric data
+dt_hrs %<>% sapply(as.numeric) %>% as.data.frame
+
+# Create a column for average work hours and round up to 2 decimals.
+dt_hrs %<>% mutate(AvgHrs = rowMeans(dt_hrs, na.rm = TRUE)) %>% round(2)
+dt_hrs %<>% mutate(EmployeeID = dt_in$EmployeeID)
+```
+
+Check if there are any days that only have NA, which would mean no one worked then.
+```{r timeNAs}
+hrs_dist <- dt_hrs %>% summarise_all(n_distinct)
+
+hrs_single <- hrs_dist %>% select_if(function(x) any(x == 1))
+print(hrs_single) 
+```
+These dates were all holidays in 2015 and therefore we can conclude no one worked on the holidays.
+</br>
+
+Did anyone work on the weekends?
+```{r weekends}
+is_weekend = function(timestamp){
+  lubridate::wday(timestamp, week_start = 1) >= 6
+}
+
+dt_weekend <- dt_intime %>% sapply(function(x) is_weekend(x)) %>% as.data.frame()
+print(length((dt_weekend[dt_weekend==TRUE & !is.na(dt_weekend)])))
+```
+No one worked on the weekends.
+</br>
+
+Remove single value columns from the work hours data since they were days that no one worked and therefore provide no predictive power. 
+```{r holidays}
+
+dt_hrs <- dt_hrs[, !names(dt_hrs) %in% names(hrs_single)]
+```
+For our analysis and modeling purposes, daily work hours of each employees is not as useful as average work hours of each employee. So we will only extract the average work hour column to our final data frame.
+
+</br>
+
+##### 2. Combine the data sets into a single data frame with appropriate features.
+```{r}
+dt <- dt_gen %>% merge(dt_emp, by="EmployeeID") %>% merge(dt_man, by="EmployeeID") %>% merge(dt_hrs[,c("EmployeeID", "AvgHrs")], by="EmployeeID") 
+````
+</br>
+
+##### 3. Remove columns with only one unique value since they don't provide any predictive value. 
+```{r}
+# Check if there are any feature that only have a single value.
+dist_dt <- dt %>% summarise_all(n_distinct)
+print(dist_dt)
+
+single_dt <- dist_dt %>% select_if(function(x) any(x == 1))
+print(single_dt)
+
+# Remove single value columns from the data.
+dt <- dt[, !names(dt) %in% names(single_dt)]
+````
+</br>
+
+### <span style="color: #264d73;"> III. Prepare features for data exploration and predictive modeling </span>
+
+##### 1. Handle missing values
+Identify where the missing values are. 
+```{r}
+# Number of missing values in the dataset.
+sum(is.na(dt))
+
+# Which columns have NAs?
+colnames(dt[ ,colSums(is.na(dt))>=1])
+
+```
+
+**Insights**
+
+* There are only 111 missing values. Considering the size of the dataframe(4410 x 26) this is not a large proportion.
+* The only columns with missing values are "NumCompaniesWorked", "TotalWorkingYears", "EnvironmentSatisfaction", "JobSatisfaction", and"WorkLifeBalance".
+* The "EnvironmentSatisfaction", "JobSatisfaction", and "WorkLifeBalance" columns are all from the employee survey data. 
+* For "NumCompaniesWorked" and "TotalWorkingYears" features, we can assume that this is truly missing data. Therefore it's reasonable to replace the missing values with the median of the data set.
+</br>
+
+Replace missing values in NumCompaniesWorked column and TotalWorkingYears column with respective medians.
+```{r}
+dt$NumCompaniesWorked[is.na(dt$NumCompaniesWorked)] <- median(dt$NumCompaniesWorked, na.rm = TRUE)
+dt$TotalWorkingYears[is.na(dt$TotalWorkingYears)] <- median(dt$TotalWorkingYears, na.rm = TRUE)
+```
+</br>
+
+Assuming that the survey data was collected via one questionnaire, I need to check if the missing values are actually from missing data (should return 3 NA for all), or if the employee responded by "not applicable" or refused to answer to certain questions.
+```{r}
+dt_empNA <-dt_emp[rowSums(is.na(dt_emp))==3,]
+```
+Since no rows had all 3 features missing, I can infer that these NAs are actually real data. Therefore I will replace the missing values with 0, or "Not Applicable." 
+```{r}
+dt$EnvironmentSatisfaction[is.na(dt$EnvironmentSatisfaction)] <- 0
+dt$JobSatisfaction[is.na(dt$JobSatisfaction)] <- 0
+dt$WorkLifeBalance[is.na(dt$WorkLifeBalance)] <- 0
+
+# Check if there are any more missing values.
+sum(is.na(dt))
+```
+
+There are no more missing values and we can move on to decoding.
+
+</br>
+
+##### 2. Decode data according to the data dictionary.
+
+Change Attrition values "Yes/No" to "Left/Stayed" for more intuitive understanding of the data.
+```{r}
+dt$Attrition[dt$Attrition == "Yes"] <- "Left"
+dt$Attrition[dt$Attrition == "No"] <- "Stayed"
+```
+
+Relabel variables to factors as defined in the data dictionary.
+```{r}
+dt$Education <- factor(dt$Education, 
+                        levels = c(1, 2, 3, 4, 5), 
+                        labels = c("Below College", "College", "Bachelor", "Master", "Doctor"))
+
+dt$BusinessTravel <- factor(dt$BusinessTravel, 
+                              levels = c("Non-Travel", "Travel_Rarely", "Travel_Frequently"),
+                              labels = c("Non-Travel", "Travel-Rarely", "Travel-Frequently"))
+
+dt$JobLevel <- factor(dt$JobLevel, 
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("1", "2", "3", "4", "5"))
+
+dt$StockOptionLevel <- factor(dt$StockOptionLevel, 
+                               levels = c(0, 1, 2, 3), 
+                               labels = c("0", "1", "2", "3"))
+
+
+dt$EnvironmentSatisfaction <- factor(dt$EnvironmentSatisfaction,
+                                      levels = c(0, 1, 2, 3, 4), 
+                                      labels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$JobInvolvement <- factor(dt$JobInvolvement, 
+                             levels = c(1, 2, 3, 4), 
+                             labels = c("Low", "Medium", "High", "Very High"))
+
+dt$JobSatisfaction <- factor(dt$JobSatisfaction, 
+                              levels = c(0, 1, 2, 3, 4), 
+                              labels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$PerformanceRating <- factor(dt$PerformanceRating, 
+                                levels = c(1, 2, 3, 4), 
+                                labels = c("Low", "Good", "Excellent", "Outstanding"))
+
+dt$WorkLifeBalance <- factor(dt$WorkLifeBalance, 
+                              levels = c(0, 1, 2, 3, 4), 
+                              labels = c("N/A","Bad", "Good", "Better", "Best"))
+
+dt$Attrition <- factor(dt$Attrition, 
+                              levels = c("Stayed", "Left")
+                              )
+````
+</br>
+
+##### 3. Prepare target columns.
+
+```{r}
+# Convert other categorical variables to the correct type.
+catcols <- c("Attrition", "BusinessTravel", "Department", "EducationField", "Gender", "JobRole", "MaritalStatus")
+dt %<>% mutate_at(catcols, factor)
+
+# Remove Employee ID column since it's not necessary for analysis or modeling.
+dt %<>% select(-"EmployeeID")
+````
+</br>
+
+**Final data frame**
+```{r}
+str(dt)
+````
+
+**Now the data is ready to be explored.**
+```{r}
+# Export the final dataset for use in subsequent notebooks.
+write.csv(dt, "FinalData.csv")

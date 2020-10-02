@@ -1,0 +1,329 @@
+---
+title: "Data Exploration"
+author: "Gina Choe"
+date: "10/1/2020"
+output: html_document
+---
+
+```{css echo=FALSE}
+blockquote {
+    padding: 10px 10px;
+    margin: 0 0 10px;
+    font-size: 14px;
+    border-left: 5px solid #e0ebeb;
+    # font-weight: bold;
+}
+
+.outputs {
+    background-color: #eef2f7;
+    border: 1px solid #b3cce6;
+    font-weight: bold;
+}
+
+code {
+  white-space : pre-wrap !important;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(class.output = "outputs")
+knitr::opts_chunk$set(warning = FALSE)
+```
+</br>
+
+#### Objective
+
+In this notebook we will examine the human resources data that was prepared in the Data Wrangling notebook. A detailed exploration of the data will provide insights into the employee body of company XYZ and help us understand which features are useful for class separation by Machine Learning models.
+</br>
+
+##### I. Load and prepare data
+1. Import relevant packages.
+2. Load the prepare dataset.
+
+##### II. Explore the Attrition Data
+1. Summary statistics of numeric features
+2. Frequency table of categorical features
+
+##### III.Visualization Attrition Data of Numeric Features
+1. Correlation plots
+2. Kernel density plots
+3. Combined violin/box plots
+
+##### IV. Visualization Attrition Data of Categorical Features
+1. Bar plots 
+2. Faceted(scaled) plots
+</br>
+</br>
+
+### <span style="color: #264d73;"> I. Load and prepare data </span>
+##### 1. Import relevant packages.
+```{r }
+library(ggplot2) # Visulazition tools
+library(corrplot) # Correlation plot
+library(repr) # Set plot dimensions
+library(cowplot) # Plot multiple plots together
+library(gridExtra)
+library(GGally) # Adds pair-wise scatter plots to ggplot2
+library(tidyverse)
+library(magrittr) #
+
+options(repr.plot.width=4, repr.plot.height=4) # Set the initial plot area dimensions
+
+```
+
+##### 2. Load the data prepared in the Data Wrangling.
+```{r data}
+dt <- read.csv("FinalData.csv")
+
+# Remove the first column created by exporting/loading the csv file.
+dt %<>% select(-1)
+
+# Convert ordered categorical columns to factors.
+dt$Education <- ordered(dt$Education, 
+                        levels = c("Below College", "College", "Bachelor", "Master", "Doctor"))
+
+dt$BusinessTravel <- ordered(dt$BusinessTravel, 
+                              levels = c("Non-Travel", "Travel-Rarely", "Travel-Frequently"))
+
+dt$JobLevel <- ordered(dt$JobLevel, 
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("1", "2", "3", "4", "5"))
+
+dt$StockOptionLevel <- ordered(dt$StockOptionLevel, 
+                               levels = c(0, 1, 2, 3), 
+                               labels = c("0", "1", "2", "3"))
+
+
+dt$EnvironmentSatisfaction <- ordered(dt$EnvironmentSatisfaction,
+                                      levels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$JobInvolvement <- ordered(dt$JobInvolvement, 
+                             levels = c("Low", "Medium", "High", "Very High"))
+
+dt$JobSatisfaction <- ordered(dt$JobSatisfaction, 
+                              levels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$PerformanceRating <- ordered(dt$PerformanceRating, 
+                                levels = c("Low", "Good", "Excellent", "Outstanding"))
+
+dt$WorkLifeBalance <- ordered(dt$WorkLifeBalance, 
+                              levels = c("N/A","Bad", "Good", "Better", "Best"))
+
+dt$Attrition <- ordered(dt$Attrition, 
+                              levels = c("Stayed", "Left"))
+
+# Convert other categorical variables to the correct type.
+catcols <- c("Department", "EducationField", "Gender", "JobRole", "MaritalStatus")
+dt %<>% mutate_at(catcols, factor)
+
+```
+
+A quick view to make sure the data was loaded correctly.
+```{r}
+dim(dt)
+# There are 4410 instances, or employees documented in the dataset, with 26 variables.
+head(dt)
+str(dt)
+```
+</br>
+
+</br>
+
+### <span style="color: #264d73;"> II. Overview of Employee Data </span>
+
+To determine what features distinguish who leaves or stays, it is also important to understand the employee demographic as a whole. We'll start by looking at all employees.
+</br>
+
+##### 1. Summary statistics of numeric features
+First, here is a summary view of the numeric columns of the dataset. Summary function does not provide standard deviations and must be calculated separately.
+
+```{r}
+# Identify numeric columns.
+numcols <- dt %>% select_if(is.numeric) %>% colnames
+
+summary(dt[,numcols])
+
+# Calculate the standard deviation
+for(col in numcols){
+        cat(paste(col, as.character(round(sd(dt[,col]), 2)), '\n'))
+    }
+```
+
+**Insights**
+
+* There is an extreme range of mean and standard deviation across the numeric columns. 
+* The maximum and minimum values also vary widely. These will need to be scaled for predictive modeling.</br>
+</br>
+
+Next is a frequency table of the categorical features of the dataset.
+</br> 
+
+##### 2. Frequency table of categorical features
+```{r}
+summary(dt[,!colnames(dt) %in% numcols])
+
+
+#  Percent of employees who left the company last year.
+print(paste("Percent of employees who left the company last year: " , 
+            round(nrow(dt[dt$Attrition=="Left",])/nrow(dt)*100, 2), "%",
+            sep = ""))
+
+```
+**Insights**
+
+* There is a significant imbalance in our label variable, Attrition (16% left and 84% stated). This is expected because employees leaving the company is undesirable and the goal is to minimize attrition. For Machine Learning modeling, it will be necessary to weight the samples accordingly or perform compensatory sampling.
+* There is a significant imbalance in the counts of most feature variables. Some categories are poorly represented. This may pose a problem in the machine learning modeling, and may need to be trimmed.
+* No employees were rated "Low" or "Good" by the managers. This may indicate that the employees all performing exceptionally well, or that the survey is biased. Either way, this feature many not provide much predictive power.
+</br>
+
+### <span style="color: #264d73;"> III. Visualization Attrition Data of Numeric Features </span>
+##### 1. Correlation Plot of Numeric Features
+```{r}
+dt %>% select_if(is.numeric) %>% cor %>% corrplot(order="FPC", tl.col="black")
+
+ggpairs(dt[,numcols])
+```
+</br>
+
+* YearsAtCompany, TotalWorkingYear, YearsWithCurrManager, YearsSinceLastProotion, and Age correlate positively. These are all temporal columns, and therefore this is expected and inevitable. For a better predictive model, multi-colinearity may need to be assessed and removed especially for logistic regression.
+</br>
+
+##### 2. Kernel density plots
+```{r fig.height = 12, fig.width = 10}
+
+count = 1
+myplots <- list()
+
+for(col in numcols){
+    options(repr.plot.width=8, repr.plot.height=8)
+        myplots[[count]] <- ggplot(dt, aes_string(col)) + 
+            geom_density() +
+            ggtitle(paste(col)) +
+            theme_light()
+         count = count + 1
+    }
+
+
+plot_grid(plotlist=myplots, ncol=3)
+```
+</br>
+Most of the numeric variables are skewed to the left. Because the number of years are counted in integers, some plots look discrete. In these cases a bar graph may be more representative. Interestingly, there seem to be two peaks in YearsWithCurrManager. This may be useful for seperation of classes. 
+</br>
+
+Next we will look at Attrition separation by numeric features.
+</br>
+
+##### 3. Combined Violin/Boxplot of Numeric Features
+
+Boxplots help visualize whether the quartiles overlap between label cases while showing statistical outliers for each feature. On the other hand, violin plots show a more detailed view of the distribution of the population.
+```{r violin, fig.height = 12, fig.width = 10}
+mycolors =c("#00AFBB", "#E7B800")
+names(mycolors) =c("Stayed", "Left")
+   
+dt_vio <- dt %>% select(Attrition, all_of(numcols))
+
+count = 1
+myplots <- list()
+
+for(col in numcols){
+        myplots[[count]] <- ggplot(dt_vio, aes_string("Attrition", col)) + 
+          geom_violin(aes(fill = Attrition), trim = FALSE) + 
+          geom_boxplot(width = 0.15)+
+          scale_fill_manual(values = mycolors)+
+          ggtitle(paste(col)) +
+               theme_light() +
+          theme(legend.position = "none",
+                axis.title.y = element_blank())
+         
+        count = count + 1
+    }
+
+plot_grid(plotlist=myplots, ncol=3)
+```
+</br>
+**Insights**
+
+* For Age, NumCompaniesWorked, TotalWorkingYears, YearsAtCompany, YearsWithCurrManager, and AvgHrs, there is meaningful separation between employees who stayed and those who left.
+* Employees who left tend to younger or have spent less time with the company.
+* Employees who left worked longer hours on average and there was also more variation in work hours than those who stayed. This featur seems to have the best separation.
+* DistanceFromHome, MonthlyIncome, PercentSalayHike, TrainingTimesLastYear, and YearsSinceLastPromotion does not seem to make a difference.
+</br>
+</br>
+
+### <span style="color: #264d73;"> IV. Visualization Attrition Data of Categorical Features </span>
+
+Let's examine the categorical features of the Attrition groups, as well as the entire population.
+</br>
+##### 1. Bar plots of categorical features
+```{r}
+# Visualize by categorical features
+
+catcols <- dt %>% select(negate(is.numeric), -Attrition) %>% colnames
+print(catcols)
+
+plot_bars = function(df, cols){
+    options(repr.plot.width=3, repr.plot.height=4) # Set the initial plot area dimensions
+    dt_stayed = df[df$Attrition == "Stayed",]
+    dt_left = df[df$Attrition == "Left",]
+    for(col in cols){
+            p1 = ggplot(dt_stayed, aes_string(col)) + 
+              geom_bar(alpha=0.8, fill=mycolors["Stayed"]) +
+              geom_text(aes(label = scales::percent(..prop.., accuracy=0.1), group = 1), 
+                          stat= "count", vjust = -.5, size=2.5) +
+              ggtitle(paste('Barplot of', col, '\n for Employees who Stayed')) +  
+              theme_light() +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1))
+              
+            p2 = ggplot(dt_left, aes_string(col)) + 
+              geom_bar(alpha=0.8, fill=mycolors["Left"]) +
+              geom_text(aes(label = scales::percent(..prop.., accuracy=0.1), group = 1), 
+                          stat= "count", vjust = -.5, size=2.5) +
+              ggtitle(paste('Barplot of', col, '\n for Employees who Left')) +  
+              theme_light() +
+              theme(axis.text.x = element_text(angle = 45, hjust = 1))
+            grid.arrange(p1,p2, nrow = 1)
+    }
+}
+
+plot_bars(dt, catcols)    
+
+```
+</br>
+
+##### 2. Faceted(Scaled) Plots of Categorical Features
+```{r fig.height = 5, fig.width = 8}
+
+# Faceted(scaled) view of the same data
+plot_bars2 = function(df, cols){
+    options(repr.plot.width=6, repr.plot.height=6) # Set the initial plot area dimensions
+  for(col in cols){
+         p =  ggplot(df, aes_string(col)) + 
+                  geom_bar(aes(fill = Attrition)) + 
+                  ggtitle(paste('Barplot of', col,'by Attrition')) + 
+                facet_grid(cols = vars(Attrition), margins = T) +
+                geom_text(aes(label = scales::percent(..prop.., accuracy=0.1), group = 1), 
+                          stat= "count", vjust = -.5, size=2.5) +
+             scale_fill_manual(values=c(mycolors["Stayed"], mycolors["Left"], "#999999")) +
+           theme_light() +
+             theme(legend.position = "none",
+                   axis.text.x = element_text(angle = 45, hjust = 1)) 
+        print(p)
+        }
+}
+
+plot_bars2(dt, catcols)
+```
+
+**Insights**
+
+* MaritalStatus, EnvironmentSatisfaction, and JobSatisfacton have significantly different distribution of categories between the employees who stayed and employees who left. These trends seem reasonable. Single people are probably more likely to be mobile and have less dependents. Also, an employee's satisfaction with the job would be a strong determinant in whether he/she stayed with the company.
+* Features JobLevel, JobRole, and WorkLifeBalance have slight differences in distribution between label categories, but the difference may not be significant due to the dominance of certain categories.
+* Amount of BusinessTravel also show a small different distribution, but this may still be meaningful since there are fewer categories.
+* Dempartment, Education, EducationField, Gender, StockOptionLevel, JobInvolvement, PerformanceRating seems to have no difference among th label categories.
+</br>
+
+### <span style="color: #264d73;"> Conclusion </span>
+There are several features, both numeric and categorical, that appear to differentiate employees who leave from the employees who stay. It's hard to tell by looking at the visualization how and to what extent these features affect the probability of attrition. Therefore a machine learning algorithm that can take into consideration all the different factors would be beneficial for further understand what leads employees leaving and how to minimize attrition.
+
+Furthermore, this exploratory data analysis was performed in [Tableau](https://public.tableau.com/profile/gina.choe#!/vizhome/ExploreHRAttrtionData/BarplotofGenderbyAttrition).

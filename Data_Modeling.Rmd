@@ -1,0 +1,1312 @@
+---
+title: "Data Modeling"
+author: "Gina Choe"
+date: "9/30/2020"
+output: 
+    html_document:
+        code_folding: show
+        toc_float: TRUE
+---
+
+```{css echo=FALSE}
+blockquote {
+    padding: 10px 10px;
+    margin: 0 0 10px;
+    font-size: 14px;
+    border-left: 5px solid #e0ebeb;
+    # font-weight: bold;
+}
+
+.outputs {
+    background-color: #eef2f7;
+    border: 1px solid #b3cce6;
+    font-weight: bold;
+}
+
+code {
+  white-space : pre-wrap !important;
+}
+
+table {
+    width:50%;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(class.output = "outputs")
+knitr::opts_chunk$set(warning = FALSE)
+```
+</br>
+
+### Objective
+
+The purpose of this notebook is to develop a supervised Machine Learning model to that can predict which employees is likely to leave the company. Through predictive modeling and feature engineering, the ultimate goal of the HR department is to understand what factors lead to employees' departure and to reduce the rate of attrition. The original problem statement required a logistic regression model, and therfore I will first focus on this algorithm. Then we will explore other models and compare their performances. The dataset was cleaned in the notebook [Data Wrangling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Wrangling.Rmd) and was visualized in the [Data Exploration Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Exploration.Rmd).
+
+#### I. Load the data
+1. Import relevant packages.
+2. Load the cleaned dataset from Data Wrangling notebook.
+
+#### II. Machine Learning Models
+1. About Metrics 
+2. Which metric is for us?
+3. Global Functions for performance measures.
+4. Prepare the data for modeling
+    * Partition the data into train and test sets.
+    * Scale Numerical Features
+    
+##### A. Logistic Regression
+1. Baseline Model
+2. Model Tuning
+3. Cross Validation
+
+##### B. Random Forest
+1. Baseline Model
+2. Model Tuning and Cross Validation
+
+##### C. Neural Network
+1. Baseline Model
+2. Model Tuning andCross Validation
+
+### <span style="color: #264d73;"> I. Load and prepare data </span>
+##### 1. Import relevant packages.
+```{r }
+library(ggplot2)
+library(repr)
+library(caret)
+library(ROCR)
+library(pROC)
+library(tidyverse)
+library(magrittr) 
+library(randomForest)
+library(nnet)
+
+options(repr.plot.width=4, repr.plot.height=4) # Set the initial plot area dimensions
+
+```
+
+##### 2. Load the data prepared in the Data Wrangling.
+```{r data}
+dt <- read.csv("FinalData.csv")
+
+# Remove the first column created by exporting/loading the csv file.
+dt %<>% select(-1)
+
+# Convert ordered categorical columns to factors.
+dt$Education <- ordered(dt$Education, 
+                        levels = c("Below College", "College", "Bachelor", "Master", "Doctor"))
+
+dt$BusinessTravel <- ordered(dt$BusinessTravel, 
+                              levels = c("Non-Travel", "Travel-Rarely", "Travel-Frequently"))
+
+dt$JobLevel <- ordered(dt$JobLevel, 
+                       levels = c(1, 2, 3, 4, 5), 
+                       labels = c("1", "2", "3", "4", "5"))
+
+dt$StockOptionLevel <- ordered(dt$StockOptionLevel, 
+                               levels = c(0, 1, 2, 3), 
+                               labels = c("0", "1", "2", "3"))
+
+
+dt$EnvironmentSatisfaction <- ordered(dt$EnvironmentSatisfaction,
+                                      levels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$JobInvolvement <- ordered(dt$JobInvolvement, 
+                             levels = c("Low", "Medium", "High", "Very High"))
+
+dt$JobSatisfaction <- ordered(dt$JobSatisfaction, 
+                              levels = c("N/A","Low", "Medium", "High", "Very High"))
+
+dt$PerformanceRating <- ordered(dt$PerformanceRating, 
+                                levels = c("Low", "Good", "Excellent", "Outstanding"))
+
+dt$WorkLifeBalance <- ordered(dt$WorkLifeBalance, 
+                              levels = c("N/A","Bad", "Good", "Better", "Best"))
+
+dt$Attrition <- ordered(dt$Attrition, 
+                              levels = c("Stayed", "Left"))
+
+# Convert other categorical variables to the correct type.
+catcols <- c("Department", "EducationField", "Gender", "JobRole", "MaritalStatus")
+dt %<>% mutate_at(catcols, factor)
+
+```
+
+A quick view to make sure the data was loaded correctly.
+```{r}
+dim(dt)
+# There are 4410 instances, or employees documented in the dataset, with 26 variables.
+head(dt)
+str(dt)
+```
+</br>
+
+### <span style="color: #264d73;">Machine Learning ### </span>
+#### 1. About metrics
+Before diving into developing and comparing Machine Learning models, we must first determine how we will assess how the models are performing. Using multiple metrics to evaluate the models allows us to understand their strengths and weaknesses. The metric of focus is dependent on the purpose of model. The following metrics are commonly used in classification problems.
+
+**Confusion matrix**
+
+This matrix puts out correctly and incorrectly classified cases in a tabular format. For the binary (two-class) case the confusion matrix is organized as follows:
+</br>
+
+
+|                 | Scored Positive | Scored Negative |
+|-------------------|---------------|-----------------|
+|**Actual Positive**| True Positive | False Negative |
+|**Actual Negative**| False Positive | True Negative |  
+
+</br>
+         
+In our model, "Left" category in the Attrition feature is defined as positive, and "Stayed" category is negative. Therefore our confusion matrix will be:
+
+|                   | Scored Left | Scored Stayed|  
+|-------------------|---------------|-----------------|
+|**Actual Left** | True Positive | False Negative |
+|**Actual Stayed**| False Positive | True Negative |   
+</br>
+
+**Accuracy** is the proportion of all correctly classified cases:
+$$Accuracy = \frac{TP+TN}{TP+FP+TN+FN}$$
+This metric can be misleading in imbalaned dataset like our data, and therefore not the best metric for measuring our model performance.
+</br>
+</br>
+
+**Precision**, also called Positive Predictive Value, is the fraction of correctly classified positive cases out of all cases classified as positive:
+
+$$Precision = \frac{TP}{TP+FP}$$
+</br>
+
+**Sensitivity**, also called Recall or True Positive Rate, is the proportion of true positive cases that are correctly identified.
+
+$$Sensitivity = \frac{TP}{TP+FN}$$
+</br>
+
+**Specificity**, also called Selectivity or True Negative Rate, is the proportion of true negatives that are correctly identified.
+
+$$Specificity = \frac{TN}{(TN+FP)}$$
+</br>
+
+**Receiver Operating Characteristic(ROC)** shows the tradeoff between True Positive Rate(Sensitivity) and False Positive Rate, while and **Area Under Curve(AUC)** is the integral of the ROC curve. The higher the AUC the lower the increase in false positive rate required to achieve a required true positive rate, and a classification model is considered to perform better if the AUC is higher.
+</br>
+
+#### 2. Which metric is best for our model?
+
+For the company, failing to identify an employee will leave(False Negative) is more costly than incorrectly predicting that an employee will leave(False Positive). Therefore we must choose a metric that penalizes failure to identify positive cases (False Negatives) most heavily. In other words, Sensitivity will be more important than Specificity. 
+
+In our case, sensitivity will be the proportion of employees correctly classified at having left against all employees who actually left. 
+
+Accuracy is a poor metric for imbalanced data with differential consequences to incorrect classification. Similarly, while AUC is often used for binary classification, it's also important to remember it can be a misleading  if the data is not balanced.
+
+Precision usually has an inverse relationship with Sensitivity and therefore we will focus on maximizing Sensitivity.
+
+</br>
+
+#### 3. Global function for measuring performance metrics.
+The first function will generate the confusion matrix and calculate metrics values, and the second will reveal which variables were deemed important for the model.
+```{r}
+perf_met <- function(df) {
+  #Confusion Matrix Summary
+  cm <- suppressWarnings(confusionMatrix(data = as.factor(df$score), 
+                                         reference = as.factor(df$Attrition), 
+                                         positive = "Left"))
+  print(cm)
+  
+  roc_obj <- roc(df$Attrition, df$probs)
+  cat(paste('AUC       =', as.character(round(auc(roc_obj),3)),'\n'))
+
+  table <- data.frame(cm$table)
+  
+  plotTable <- table %>%
+    mutate(Correctness = ifelse(table$Prediction == table$Reference, "Correct", "Incorrect")) %>%
+    group_by(Reference) %>%
+    mutate(Proportion = Freq/sum(Freq))
+  
+  # Fill alpha relative to sensitivity/specificity by proportional outcomes within reference groups 
+  ggplot(data = plotTable, 
+         mapping = aes(x=Reference, y=Prediction, fill=Correctness, alpha=Proportion)) + 
+      geom_tile() +
+      geom_text(aes(label=Freq), vjust=.5, fontface="bold", alpha=1) +
+      scale_fill_manual(values = c(Correct="#264d73", Incorrect="#b30000")) +
+      xlim(rev(levels(table$Reference))) +
+      ylim(levels(table$Prediction)) +
+      theme_light()
+}
+
+## Function to show  which features are important.
+feature_imp= function(mod) {
+    imp = varImp(mod)
+    
+    plot <- ggplot(imp, aes(x=reorder(rownames(imp),Overall), y=Overall)) +
+        geom_point(color="skyblue", size=2, alpha=0.8) +
+        geom_segment(aes(x=rownames(imp), xend=rownames(imp), y=0, yend=Overall), color='skyblue') +
+        xlab('Variable') + 
+        ylab('Overall Importance') +
+        theme_light() +
+        coord_flip() 
+  print(anova(mod, test="Chisq"))
+  print(plot)
+}
+```
+#### 4.Prepare the data for modeling
+* Partition the data into train and test sets. We will use this partition for all models for comparison purposes.
+```{r}
+set.seed(1955)
+## Randomly sample cases to create independent training and test data
+partition = createDataPartition(dt[,'Attrition'], times = 1, p = 0.7, list = FALSE)
+dt_train = dt[partition,] # Create the training sample
+dim(dt_train)
+dt_test = dt[-partition,] # Create the test sample
+dim(dt_test)
+```
+
+* Scale numeric features to normalize variable importance.
+```{r}
+numcols <- dt %>% select_if(is.numeric) %>%  colnames
+print(numcols)
+preProcValues <- preProcess(dt_train[,numcols], method = c("center", "scale"))
+
+dt_train[,numcols] = predict(preProcValues, dt_train[,numcols])
+dt_test[,numcols] = predict(preProcValues, dt_test[,numcols])
+head(dt_train[,numcols])
+head(dt_train)
+```
+
+Let's start with Logistic Regression Model as requested by the client.
+
+### <span style="color: #264d73;"> A. Logistic Regression </span>
+
+Create a copy of the partitioned datasets. (This step is not necessary but I prefer to keep the original dataset untouched.)
+
+```{r}
+dLM_train <- dt_train
+dLM_test <- dt_test
+head(dLM_train)
+head(dLM_test)
+```
+</br>
+
+#### 1. Perform a baseline Logistric Regression modeling.
+```{r}
+set.seed(1955)
+glm_mod = glm(Attrition ~ ., 
+                   family = binomial, data = dLM_train,
+                  )
+```
+
+Let's look at the summary of the model.
+```{r}
+anova(glm_mod, test="Chisq")
+```
+
+Using the trained model, make predictions for the test data.
+```{r}
+dLM_test %<>% mutate(probs= predict(glm_mod, newdata=dLM_test, type = 'response'))
+
+score_model = function(df, threshold){
+    df %<>% mutate(score = ifelse(probs < threshold, "Stayed", "Left"))
+}
+
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod)
+```
+
+**Insights**
+
+* When looking at the accuracy, specificity, and AUC values, his model seems to perform well. However as noted previously, this is extremely misleading because our label features have an imbalance of 84 to 16 against the positive label(Left). Therefore an accuracy of 0.8631 is not much better than no modeling. First thing we need to do is correct the imbalance.
+* This is also evident when we look at the our metric of interest, sensitivity, which yielded only 0.2676.
+* Our goal is to increase the correctness in the top left quadrant of the confusion matrix(Predicted Left x Actual Left).
+* There are several variables that were no statistically significant(high p-value) or important in the initial model, such as DistanceFromHome or PerformanceRating. At first glance, this is  in agreement with the exploratory data analysis. As we improve the model subsequently, we will continue to examine whether our observations are represented by the predictive model.
+</br>
+</br>
+
+#### 2. Perform Logistic Regression model tuning
+
+Now that we have an idea what a baseline logistic model looks like, we can try to improve the model by feature selection and hyperparameter tuning.
+
+Before we change the model itself, we must deal with sample imbalance by increasing the weight of "Left" cases.
+```{r}
+## Create a weight vector for the training cases.
+sum(length(dLM_train$Attrition[dLM_train$Attrition=="Left"]))/nrow(dLM_train)*100
+## 16% of training data Left and 84% Stayed. 
+
+weights = ifelse(dLM_train$Attrition == 'Left', 0.84, 0.16)
+```
+
+How the model performance changes after correcting the imbalance?
+```{r}
+## GLM with weights
+glm_mod_w = glm(Attrition ~ ., 
+                     family = quasibinomial, data = dLM_train,
+                     weights = weights)
+dLM_test %<>% mutate(probs= predict(glm_mod_w, newdata=dLM_test, type = 'response'))
+
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:20, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod)
+```
+
+**Insight**
+
+* Although accuracy, specificity, and AUC values slightly decreased, there was a substantial increase in sensitivity. THerefore we can conclude that this weight correction is a step in the right direction.
+* Furthermore, the confusion matrix has improved significant.
+</br>
+
+We can now continue with the model tuning.
+</br>
+</br>
+
+### Feature Selection
+
+One concern with a model that performs successful is that there is over-fitting of the model. Reducing features can assist in reducing multi-colinearity and increasing generalization of the model.
+</br>
+</br>
+
+#### Model 1. All features
+```{r}
+glm_mod_1 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  DistanceFromHome + 
+                  Education +
+                  EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+dLM_test$probs= predict(glm_mod_1, newdata=dLM_test, type = 'response')
+
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_1)
+```
+
+</br>
+
+**Model 1 Performance**
+
++------------+--------+
+| Accuracy   | 0.7436 |
++------------+--------+
+|Sensitivity | 0.7559 |
++------------+--------+
+|Specificity | 0.7412 |
++------------+--------+
+|AUC         | 0.819  |
++------------+--------+
+
+</br>
+
+For next step, I will remove DistanceFromHome among the model features because the p-value  indicates it is not significant and it was not deemed an important variable.
+</br>
+
+#### Model 2. Remove DistanceFromHome
+```{r}
+glm_mod_2 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+dLM_test$probs= predict(glm_mod_2, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_2)
+
+```
+</br>
+
+**Model 2 Performance**
+
++------------+--------+
+| Accuracy   | 0.7458 |
++------------+--------+
+|Sensitivity | 0.7559 |
++------------+--------+
+|Specificity | 0.7439 |
++------------+--------+
+|AUC         | 0.819  |
++------------+--------+
+
+</br>
+
+* Metric values did not change much, but this also indicates that this feature did not contribute to the model significantly. Therefore we should keep it out of the model.
+
+</br>
+
+#### Model 3. Remove StockOptionLevel
+```{r}
+glm_mod_3 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+dLM_test$probs= predict(glm_mod_3, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_3)
+```
+</br>
+
+**Model 3 Performance**
+
++------------+--------+
+| Accuracy   | 0.7504 |
++------------+--------+
+|Sensitivity | 0.7653 |
++------------+--------+
+|Specificity | 0.7475 |
++------------+--------+
+|AUC         | 0.819  |
++------------+--------+
+
+</br>
+* All metric calculations showed improvements so we will keep this feature out. 
+* I will continue this process feature by feature to arrive at the simplest model.
+</br>
+
+#### Model 4. Remove YearsAtCompany
+```{r}
+glm_mod_4 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+dLM_test$probs= predict(glm_mod_4, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_4)
+
+```
+</br>
+
+**Model 4 Performance**
+
++------------+--------+
+| Accuracy   | 0.7368 |
++------------+--------+
+|Sensitivity | 0.7559 |
++------------+--------+
+|Specificity | 0.7331 |
++------------+--------+
+|AUC         | 0.82   |
++------------+--------+
+
+</br>
+* All metrics deteriorated, so we will try adding the feature back and remove a different feature.
+
+#### Model 5. Add YearsAtCompany back and remove PerformanceRating
+```{r}
+glm_mod_5 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_5, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_5)
+```
+</br>
+
+**Model 5 Performance**
+
++------------+--------+
+| Accuracy   | 0.7511 |
++------------+--------+
+|Sensitivity | 0.7700 |
++------------+--------+
+|Specificity | 0.7475 |
++------------+--------+
+|AUC         | 0.819  |
++------------+--------+
+
+* All metric improved notably except for AUC, which did not change. However the p-value for YearsAtCompany continued to be large, therefore we will remove it again.
+</br>
+
+##### Model 6. Remove YearsAtCompany again and remove EducationField
+```{r}
+glm_mod_6 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  # EducationField + 
+                  Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_6, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_6)
+```
+</br>
+
+**Model 6 Performance**
+
++------------+--------+
+| Accuracy   | 0.7315 |
++------------+--------+
+|Sensitivity | 0.7653 |
++------------+--------+
+|Specificity | 0.7250 |
++------------+--------+
+|AUC         | 0.82   |
++------------+--------+
+
+</br>
+
+##### Model 7. Remove Gender
+```{r}
+glm_mod_7 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  # EducationField + 
+                  # Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_7, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_7)
+```
+
+</br>
+
+**Model 7 Performance**
+
++------------+--------+
+| Accuracy   | 0.7337 |
++------------+--------+
+|Sensitivity | 0.7700 |
++------------+--------+
+|Specificity | 0.7268 |
++------------+--------+
+|AUC         | 0.82   |
++------------+--------+
+
+</br>
+
+
+#### Model 8. Remove PercentSalaryHike
+```{r}
+glm_mod_8 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  # EducationField + 
+                  # Gender + 
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  # PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_8, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_8)
+```
+
+</br>
+
+**Model 8 Performance**
+
++------------+--------+
+| Accuracy   | 0.7322 |
++------------+--------+
+|Sensitivity | 0.7606 |
++------------+--------+
+|Specificity | 0.7268 |
++------------+--------+
+|AUC         | 0.82   |
++------------+--------+
+
+</br>
+
+#### Model 9. Remove JobLevel
+```{r}
+glm_mod_9 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  # EducationField + 
+                  # Gender + 
+                  # JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  # PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_9, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_9)
+```
+</br>
+
+**Model 9 Performance**
+
++------------+--------+
+| Accuracy   | 0.7262 |
++------------+--------+
+|Sensitivity | 0.7512 |
++------------+--------+
+|Specificity | 0.7214 |
++------------+--------+
+|AUC         | 0.818  |
++------------+--------+
+
+</br>
+
+#### Model 10. Remove MonthlyIncome
+```{r}
+glm_mod_10 = glm(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  # DistanceFromHome + 
+                  Education +
+                  # EducationField + 
+                  # Gender + 
+                  # JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  # MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  # PercentSalaryHike + 
+                  # StockOptionLevel + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  # YearsAtCompany + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  # PerformanceRating + 
+                  AvgHrs, 
+                data = dLM_train,
+                family = quasibinomial, 
+                weights = weights)
+
+dLM_test$probs= predict(glm_mod_10, newdata=dLM_test, type = 'response')
+dLM_test = score_model(dLM_test, 0.5)
+dLM_test[1:10, c('Attrition','probs','score')]
+
+perf_met(dLM_test)
+feature_imp(glm_mod_10)
+```
+
+</br>
+
+**Model 10 Performance**
+
++------------+--------+
+| Accuracy   | 0.7262 |
++------------+--------+
+|Sensitivity | 0.7465 |
++------------+--------+
+|Specificity | 0.7223 |
++------------+--------+
+|AUC         | 0.818  |
++------------+--------+
+
+</br>
+
+The model performance measured by sensitivity seems to deteriorate with further feature removal after Model 7. Also starting from Model 7's iteration onward, the remaining variables were shown to be statistically significant. Therefore I have determined that **Model 7** to be my most predictive model.
+</br>
+
+Subsequently we will look at whether the threshold of 0.5 is appropriate. If the imbalance correction of the label features was successful, then this value would not need to be changed significantly.
+
+
+```{r}
+test_threshold = function(test, threshold){
+    test$score = predict(glm_mod_7, newdata = test, type = 'response')
+    test = score_model(test, t)
+    cat('\n')
+    cat(paste('For threshold = ', as.character(threshold), '\n'))
+    print(perf_met(test))
+}
+
+thresholds = seq(0.1, 0.9, by = 0.1)
+for(t in thresholds) test_threshold(dLM_test, t) # Iterate over the thresholds
+```
+
+This test indicates that a threshold of 0.5 is adequate for our model.
+
+
+#### 3. Cross Validation
+Using our final model glm_mod_7, I will perform a repeated cross-validation of the entire dataset  to examine whether this model is generalized well. 
+
+```{r}
+weights = ifelse(dt$Attrition == 'Left', 0.84, 0.16)
+
+control <- trainControl(method = "repeatedcv",
+                        number = 5,
+                        repeats = 3,
+                        returnResamp ="all",
+                        savePredictions = TRUE, 
+                        classProbs = TRUE,
+                        summaryFunction = twoClassSummary)
+
+set.seed(1955)
+glm_final <- train(Attrition ~ 
+                  Age + 
+                  BusinessTravel + 
+                  Department + 
+                  Education +
+                  JobLevel + 
+                  JobRole + 
+                  MaritalStatus + 
+                  MonthlyIncome + 
+                  NumCompaniesWorked + 
+                  PercentSalaryHike + 
+                  TotalWorkingYears +
+                  TrainingTimesLastYear + 
+                  YearsSinceLastPromotion +
+                  YearsWithCurrManager + 
+                  EnvironmentSatisfaction + 
+                  JobSatisfaction +
+                  WorkLifeBalance +
+                  JobInvolvement + 
+                  AvgHrs, 
+                data=dt, 
+                method="glm", 
+                metric= "Recall",
+                weights = weights,
+                trControl=control)
+
+glm_final
+```
+</br>
+
+While the average of the metric sensitivity seems to have degraded slightly, this is as expected due to multiple re-sampling for cross validation. I conclude that our final Logistic Regression model is able to generalize reasonably well.
+
+</br>
+
+Next, let's take a look at an emsemble classification model, Random Forest.
+
+### <span style="color: #264d73;"> B. Random Forest </span>
+
+Create a copy of the partitioned, scaled datasets as before.
+
+```{r}
+dRF_train <- dt_train
+dRF_test <- dt_test
+head(dRF_train)
+head(dRF_test)
+```
+</br>
+
+Modify the performance metric function because Random Forest does not compute probabilities.
+```{r }
+perf_met <- function(df) {
+  #Confusion Matrix Summary
+  cm <- suppressWarnings(confusionMatrix(data = as.factor(df$score), 
+                                         reference = as.factor(df$Attrition), 
+                                         positive = "Left"))
+  print(cm)
+
+  table <- data.frame(cm$table)
+  
+  plotTable <- table %>%
+    mutate(Correctness = ifelse(table$Prediction == table$Reference, "Correct", "Incorrect")) %>%
+    group_by(Reference) %>%
+    mutate(Proportion = Freq/sum(Freq))
+  
+  # Fill alpha relative to sensitivity/specificity by proportional outcomes within reference groups 
+  ggplot(data = plotTable, 
+         mapping = aes(x=Reference, y=Prediction, fill=Correctness, alpha=Proportion)) + 
+      geom_tile() +
+      geom_text(aes(label=Freq), vjust=.5, fontface="bold", alpha=1) +
+      scale_fill_manual(values = c(Correct="#264d73", Incorrect="#b30000")) +
+      xlim(rev(levels(table$Reference))) +
+      ylim(levels(table$Prediction)) +
+      theme_light()
+}
+
+## Function to show  which features are important.
+feature_imp= function(mod) {
+    imp = varImp(mod)
+    
+    plot <- ggplot(imp, aes(x=reorder(rownames(imp),Overall), y=Overall)) +
+        geom_point(color="skyblue", size=2, alpha=0.8) +
+        geom_segment(aes(x=rownames(imp), xend=rownames(imp), y=0, yend=Overall), color='skyblue') +
+        xlab('Variable') + 
+        ylab('Overall Importance') +
+        theme_light() +
+        coord_flip() 
+  print(plot)
+}
+```
+
+#### 1. Perform a baseline Random Forest model
+```{r}
+rf_mod <- randomForest(Attrition ~ ., 
+                       data=dRF_train
+                       )
+print(rf_mod)
+
+dRF_test$score = predict(rf_mod, newdata = dRF_test)
+dRF_test[1:10, c('Attrition','score')]
+
+
+perf_met(dRF_test)
+feature_imp(rf_mod)
+```
+
+**Insights**
+
+* This baseline Random Forest model performed extremely well across all metrics, to the extent that I was incredulous of the result. For example, the accuracy was over 99% while sensitivity was 94% and specificity was 1. This led me to conjecture that this dataset is not anonymized real data, but actually manufactured for the purposes of education or exercise, perhaps particularly for Logistic Regression. This is also supported by the fact that even the raw datasets were unusually polished.
+* Even though this Random Forest model is already close to perfection, I will continue with feature selection and model tuning to showcase what should be the next steps.
+* Gender and PerformanceRating again ranked lowest in variable importance. Therefore I will remove these features in the following modeling.
+* Random Forest is regarded to deal well with feature imbalance, as seen by high specificity as well as sensitivity.
+
+</br>
+
+#### 2. Model Tuning and Cross Validation
+In order to optimize both mtry and ntree hyperparameters in conjunction, I created a custom Random Forest method to be used with caret package's train() function.
+```{r}
+## Create custom training algorithm that tunes both mtry and ntree together.
+customRF <- list(type = "Classification", library = "randomForest", loop = NULL)
+customRF$parameters <- data.frame(parameter = c("mtry", "ntree"), 
+                                  class = rep("numeric", 2), 
+                                  label = c("mtry", "ntree"))
+customRF$grid <- function(x, y, len = NULL, search = "grid") {}
+customRF$fit <- function(x, y, wts, param, lev, last, weights, classProbs, ...){
+  randomForest(x, y, mtry = param$mtry, ntree=param$ntree, ...)}
+customRF$predict <- function(modelFit, newdata, preProc = NULL, submodels = NULL){
+   predict(modelFit, newdata)}
+customRF$prob <- function(modelFit, newdata, preProc = NULL, submodels = NULL){
+   predict(modelFit, newdata, type = "prob")}
+customRF$sort <- function(x) {x[order(x[,1]),]}
+customRF$levels <- function(x) {x$classes}
+
+# Train model with customRF training algorithm.
+weights = ifelse(dRF_train$Attrition == 'Left', 0.84, 0.16)
+
+control <- trainControl(method = "repeatedcv",
+                        number = 5,
+                        repeats = 3,
+                        search='grid',
+                        returnResamp ="all",
+                        sampling = "smote",
+                        savePredictions = TRUE, 
+                        classProbs = TRUE,
+                        summaryFunction = twoClassSummary)
+
+# Hyperparameter grid
+tunegrid <- expand.grid(.mtry=c(3:15), .ntree=c(101,501,1001,2001))
+
+set.seed(1955)
+myRF_mod <- train(Attrition ~ 
+                         Age + 
+                         BusinessTravel + 
+                         Department + 
+                         DistanceFromHome + 
+                         Education +
+                         EducationField + 
+                        # Gender + 
+                         JobLevel + 
+                         JobRole + 
+                         MaritalStatus + 
+                         MonthlyIncome + 
+                         NumCompaniesWorked + 
+                         PercentSalaryHike + 
+                         StockOptionLevel + 
+                         TotalWorkingYears +
+                         TrainingTimesLastYear + 
+                         YearsAtCompany + 
+                         YearsSinceLastPromotion +
+                         YearsWithCurrManager + 
+                         EnvironmentSatisfaction + 
+                         JobSatisfaction +
+                         WorkLifeBalance +
+                         JobInvolvement + 
+                        # PerformanceRating + 
+                         AvgHrs,
+                data=dRF_train, 
+                method=customRF, 
+                metric= "Sens",
+                tuneGrid=tunegrid, 
+                trControl=control)
+
+plot(myRF_mod) 
+dRF_test$scores = predict(myRF_mod, newdata = dRF_test)
+perf_met(dRF_test)
+
+myRF_mod
+```
+</br>
+
+**Insights**
+
+* The best performing random forest model used mtry = 11 and ntree = 501.
+* Removal of the two lowest importance variable did not change the performance significantly, indicating it should be disregarded.
+
+</br>
+
+The final model for comparison is the Neural Network algorithm.
+
+</br>
+</br>
+
+### <span style="color: #264d73;"> C. Neural Network </span>
+
+Create a copy of the partitioned, scaled datasets as before.
+
+```{r}
+dNN_train <- dt_train
+dNN_test <- dt_test
+head(dNN_train)
+head(dNN_test)
+```
+```{r}
+perf_met <- function(df) {
+  #Confusion Matrix Summary
+  cm <- suppressWarnings(confusionMatrix(data = as.factor(df$score), 
+                                         reference = as.factor(df$Attrition), 
+                                         positive = "Left"))
+  print(cm)
+
+  table <- data.frame(cm$table)
+  
+  plotTable <- table %>%
+    mutate(Correctness = ifelse(table$Prediction == table$Reference, "Correct", "Incorrect")) %>%
+    group_by(Reference) %>%
+    mutate(Proportion = Freq/sum(Freq))
+  
+  # Fill alpha relative to sensitivity/specificity by proportional outcomes within reference groups 
+  ggplot(data = plotTable, 
+         mapping = aes(x=Reference, y=Prediction, fill=Correctness, alpha=Proportion)) + 
+      geom_tile() +
+      geom_text(aes(label=Freq), vjust=.5, fontface="bold", alpha=1) +
+      scale_fill_manual(values = c(Correct="#264d73", Incorrect="#b30000")) +
+      xlim(rev(levels(table$Reference))) +
+      ylim(levels(table$Prediction)) +
+      theme_light()
+}
+
+## Function to show  which features are important.
+feature_imp= function(mod) {
+    imp = varImp(mod)
+    
+    plot <- ggplot(imp, aes(x=reorder(rownames(imp), Overall), y=Overall)) +
+        geom_point(color="skyblue", size=2, alpha=0.8) +
+        geom_segment(aes(x=rownames(imp), xend=rownames(imp), y=0, yend=Overall), color='skyblue') +
+        xlab('Variable') + 
+        ylab('Overall Importance') +
+        theme_light() +
+        coord_flip() 
+  print(plot)
+}
+```
+
+##### 1. Baseline Neural Network Model using caret
+```{r}
+nn_mod <- train(Attrition ~ .,
+                          data = dNN_train,  
+                          method = "nnet",
+                          metric="Sens")
+
+dNN_test$score = predict(nn_mod, newdata=dNN_test)
+perf_met(dNN_test)
+feature_imp(nn_mod_1$finalModel)
+
+```
+</br>
+
+**Insight**
+
+* This baseline neural network model performed similarly to the Logistic Regression, with high accuracy and specificity but low sensitivity. The samples need to be weighted to correct for the imbalance in the next step. 
+* Variable importance values are dramatically different from the previous two models. Also, the model seems to favor numeric features even though they were scaled. This needs to be investigated further.
+</br>
+</br>
+
+##### 2. Model Tuning and Cross Validation 
+* Samples will be weighted to correct label feature imbalance.
+* We will execute the following code to optimize hyper parameters size and decay. 
+* Cross validation will be used to obtain regularization.
+
+```{r}
+weights = ifelse(dNN_train$Attrition == 'Left', 0.84, 0.16)
+
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 3,
+                           returnResamp="all",
+                           savePredictions = TRUE,
+                           classProbs = TRUE,
+                           summaryFunction = twoClassSummary)
+paramGrid <- expand.grid(size = c(3, 6, 9, 12, 15), decay = c(1.0, 0.5, 0.1))
+
+set.seed(1234)
+nn_mod <- train(Attrition ~ 
+                         Age + 
+                         BusinessTravel + 
+                         Department + 
+                         DistanceFromHome + 
+                         Education +
+                         EducationField + 
+                         Gender + 
+                         JobLevel + 
+                         JobRole + 
+                         MaritalStatus + 
+                         MonthlyIncome + 
+                         NumCompaniesWorked + 
+                         PercentSalaryHike + 
+                         StockOptionLevel + 
+                         TotalWorkingYears +
+                         TrainingTimesLastYear + 
+                         YearsAtCompany + 
+                         YearsSinceLastPromotion +
+                         YearsWithCurrManager + 
+                         EnvironmentSatisfaction + 
+                         JobSatisfaction +
+                         WorkLifeBalance +
+                         JobInvolvement + 
+                         PerformanceRating + 
+                         AvgHrs,
+                          data = dNN_train,  
+                          method = "nnet", # Neural network model 
+                          trControl = fitControl, 
+                          tuneGrid = paramGrid, 
+                          weights = weights, 
+                          trace = FALSE,
+                          metric="Sens")
+
+plot(nn_mod_1)
+varImp(nn_mod_1)
+
+dNN_test$score = predict(nn_mod_1, newdata=dNN_test)
+
+perf_met(dNN_test)
+feature_imp(nn_mod_1$finalModel)
+
+```
+
+### <span style="color: #264d73;"> Conclusion 
+The best performing model utilized the Random Forest algorithm with mtry=11 and ntree=501.
+Features 
+
+

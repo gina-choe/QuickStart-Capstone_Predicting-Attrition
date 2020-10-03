@@ -329,4 +329,4 @@ plot_bars2(dt, catcols)
 ### <span style="color: #264d73;"> Conclusion </span>
 There are several features, both numeric and categorical, that appear to differentiate employees who leave from the employees who stay. It's hard to tell by looking at the visualization how and to what extent these features affect the probability of attrition. Therefore a machine learning algorithm that can take into consideration all the different factors would be beneficial for further understand what leads employees leaving and how to minimize attrition.
 
-Furthermore, this exploratory data analysis was performed in [Tableau](https://public.tableau.com/profile/gina.choe#!/vizhome/ExploreHRAttrtionData).
+

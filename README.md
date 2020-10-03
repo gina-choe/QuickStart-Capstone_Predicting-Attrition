@@ -27,8 +27,8 @@ I became interested in this dataset because HR analytics is becoming increasingl
 </br> 
 
 * [Data Wrangling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Wrangling.Rmd)
-* [Exploratory Data Analysis Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Exploration.Rmd)
-* [Modeling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Modeling.Rmd)
+* [Data Exploration Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Exploration.Rmd)
+* [Data Modeling Notebook](https://github.com/gina-choe/QuickStart-Capstone_Predicting-Attrition/blob/main/Data_Modeling.Rmd)
 
 
 

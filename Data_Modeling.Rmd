@@ -1110,7 +1110,6 @@ control <- trainControl(method = "repeatedcv",
                         repeats = 3,
                         search='grid',
                         returnResamp ="all",
-                        sampling = "smote",
                         savePredictions = TRUE, 
                         classProbs = TRUE,
                         summaryFunction = twoClassSummary)
@@ -1181,6 +1180,7 @@ dNN_test <- dt_test
 head(dNN_train)
 head(dNN_test)
 ```
+
 ```{r}
 perf_met <- function(df) {
   #Confusion Matrix Summary
@@ -1224,15 +1224,14 @@ feature_imp= function(mod) {
 
 ##### 1. Baseline Neural Network Model using caret
 ```{r}
-nn_mod <- train(Attrition ~ .,
-                          data = dNN_train,  
-                          method = "nnet",
-                          metric="Sens")
+nn_mod<- train(Attrition ~ .,
+               data = dNN_train,  
+               method = "nnet" )
 
 dNN_test$score = predict(nn_mod, newdata=dNN_test)
-perf_met(dNN_test)
-feature_imp(nn_mod_1$finalModel)
 
+perf_met(dNN_test)
+feature_imp(nn_mod$finalModel)
 ```
 </br>
 
@@ -1261,7 +1260,7 @@ fitControl <- trainControl(method = "repeatedcv",
 paramGrid <- expand.grid(size = c(3, 6, 9, 12, 15), decay = c(1.0, 0.5, 0.1))
 
 set.seed(1234)
-nn_mod <- train(Attrition ~ 
+nn_mod_1<- train(Attrition ~ 
                          Age + 
                          BusinessTravel + 
                          Department + 
@@ -1306,7 +1305,8 @@ feature_imp(nn_mod_1$finalModel)
 ```
 
 ### <span style="color: #264d73;"> Conclusion 
-The best performing model utilized the Random Forest algorithm with hyperparameters mtry=11 and ntree=501.
+The best performing model utilized the Random Forest algorithm with mtry=11 and ntree=501.
+</br>
 
 Key driving features were:
 * AvgHrs
@@ -1317,5 +1317,3 @@ Key driving features were:
 </br>
 
 Of these features, the only feature which the company can affect for the current employees is the average work hours. Employees who work longer hours tend to leave the company at a higher rate. Therefore, limiting or encouraging work hours to be regular 8 hour shifts may increase employee retention rate. 
-
-

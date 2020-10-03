@@ -1306,7 +1306,16 @@ feature_imp(nn_mod_1$finalModel)
 ```
 
 ### <span style="color: #264d73;"> Conclusion 
-The best performing model utilized the Random Forest algorithm with mtry=11 and ntree=501.
-Features 
+The best performing model utilized the Random Forest algorithm with hyperparameters mtry=11 and ntree=501.
+
+Key driving features were:
+* AvgHrs
+* YearsAtCompany
+* TotalWorkngYears
+* MaritalStatus
+* Age
+</br>
+
+Of these features, the only feature which the company can affect for the current employees is the average work hours. Employees who work longer hours tend to leave the company at a higher rate. Therefore, limiting or encouraging work hours to be regular 8 hour shifts may increase employee retention rate. 
 
 

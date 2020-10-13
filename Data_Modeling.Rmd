@@ -1115,7 +1115,7 @@ control <- trainControl(method = "repeatedcv",
                         summaryFunction = twoClassSummary)
 
 # Hyperparameter grid
-tunegrid <- expand.grid(.mtry=c(3:15), .ntree=c(101,501,1001,2001))
+tunegrid <- expand.grid(.mtry=c(5:12), .ntree=c(101,501,1001,2001))
 
 set.seed(1955)
 myRF_mod <- train(Attrition ~ 
@@ -1160,7 +1160,7 @@ myRF_mod
 
 **Insights**
 
-* The best performing random forest model used mtry = 11 and ntree = 501.
+* The best performing random forest model used mtry = 5 and ntree = 101.
 * Removal of the two lowest importance variable did not change the performance significantly, indicating it should be disregarded.
 
 </br>
@@ -1304,7 +1304,7 @@ feature_imp(nn_mod_1$finalModel)
 
 ```
 
-### <span style="color: #264d73;"> Conclusion 
+### <span style="color: #264d73;"> Conclusion  </span>
 The best performing model utilized the Random Forest algorithm with mtry=11 and ntree=501.
 </br>
 
@@ -1316,4 +1316,4 @@ Key driving features were:
 * Age
 </br>
 
-Of these features, the only feature which the company can affect for the current employees is the average work hours. Employees who work longer hours tend to leave the company at a higher rate. Therefore, limiting or encouraging work hours to be regular 8 hour shifts may increase employee retention rate. 
+Of these features, the only feature which the company can affect for the current employees is the average work hours. Employees who work longer hours tend to leave the company at a higher rate. Therefore, limiting or encouraging work hours to be regular 8 hour shifts may increase employee retention rate.
